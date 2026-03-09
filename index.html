@@ -1,0 +1,970 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <title>【緊急事態⚠】ひなあられ工場パニック💦33個回収せよ📣</title>
+    <script src="https://aframe.io/releases/1.7.1/aframe.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.5.4/dist/aframe-extras.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-physics-system@v4.2.2/dist/aframe-physics-system.min.js"></script>
+
+    <style>
+      #game-ui {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.8);
+        display: none;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        z-index: 9999;
+        color: white;
+        font-family: sans-serif;
+        text-align: center;
+      }
+      #game-ui h1 {
+        color: #ff6b6b;
+        font-size: 3rem;
+        margin-bottom: 20px;
+        text-shadow: 2px 2px 4px #000;
+      }
+      #start-btn {
+        padding: 15px 40px;
+        font-size: 1.5rem;
+        background-color: #4caf50;
+        color: white;
+        border: none;
+        border-radius: 50px;
+        cursor: pointer;
+      }
+
+      /* スコアと時間の表示エリア */
+      #hud {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        text-align: right;
+        color: white;
+        font-family: monospace;
+        font-weight: bold;
+        text-shadow: 2px 2px 0 #000;
+        z-index: 100;
+        pointer-events: none;
+      }
+      #score-board {
+        font-size: 2rem;
+      }
+      #time-board {
+        font-size: 1.5rem;
+        color: #ffeb3b;
+        margin-top: 5px;
+      }
+    </style>
+
+    <script>
+      const GAME_TIME = 60;
+      let timeLeft = GAME_TIME;
+      let timerInterval = null;
+      let isGameActive = false;
+
+      // ▼▼▼ 新機能: サウンドマネージャー (ファミコン風) ▼▼▼
+      AFRAME.registerComponent("sound-manager", {
+        init: function () {
+          // AudioContextの作成
+          this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+        },
+        playSound: function (type) {
+          if (this.ctx.state === "suspended") this.ctx.resume(); // ブラウザ制限対策
+
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+
+          const now = this.ctx.currentTime;
+
+          switch (type) {
+            case "put": // 置く音 (プイッ)
+              osc.type = "triangle";
+              osc.frequency.setValueAtTime(600, now);
+              osc.frequency.exponentialRampToValueAtTime(100, now + 0.1);
+              gain.gain.setValueAtTime(0.1, now);
+              gain.gain.linearRampToValueAtTime(0, now + 0.1);
+              osc.start(now);
+              osc.stop(now + 0.1);
+              break;
+
+            case "coin": // 回収音 (チャリン♪)
+              osc.type = "square"; // 四角波＝ファミコンっぽい音
+              osc.frequency.setValueAtTime(1200, now);
+              osc.frequency.setValueAtTime(1800, now + 0.05);
+              gain.gain.setValueAtTime(0.1, now);
+              gain.gain.linearRampToValueAtTime(0, now + 0.1);
+              osc.start(now);
+              osc.stop(now + 0.1);
+              break;
+
+            case "explosion": // 爆発音 (ノイズ風)
+              osc.type = "sawtooth";
+              osc.frequency.setValueAtTime(100, now);
+              osc.frequency.exponentialRampToValueAtTime(10, now + 0.5);
+              gain.gain.setValueAtTime(0.2, now);
+              gain.gain.linearRampToValueAtTime(0, now + 0.5);
+              osc.start(now);
+              osc.stop(now + 0.5);
+              break;
+
+            case "win": // クリアファンファーレ
+              const notes = [523.25, 659.25, 783.99, 1046.5]; // C E G C
+              notes.forEach((freq, i) => {
+                const o = this.ctx.createOscillator();
+                const g = this.ctx.createGain();
+                o.connect(g);
+                g.connect(this.ctx.destination);
+                o.type = "square";
+                o.frequency.value = freq;
+                g.gain.setValueAtTime(0.1, now + i * 0.1);
+                g.gain.linearRampToValueAtTime(0, now + i * 0.1 + 0.1);
+                o.start(now + i * 0.1);
+                o.stop(now + i * 0.1 + 0.1);
+              });
+              break;
+
+            case "lose": // 失敗音 (ボヨヨーン)
+              osc.type = "triangle";
+              osc.frequency.setValueAtTime(300, now);
+              osc.frequency.linearRampToValueAtTime(100, now + 0.5); // 下がる
+              // ビブラート的に揺らす
+              for (let i = 0; i < 10; i++) {
+                osc.frequency.setValueAtTime(
+                  200 + (i % 2) * 50,
+                  now + i * 0.05,
+                );
+              }
+              gain.gain.setValueAtTime(0.1, now);
+              gain.gain.linearRampToValueAtTime(0, now + 0.5);
+              osc.start(now);
+              osc.stop(now + 0.5);
+              break;
+          }
+        },
+      });
+
+      // ▼▼▼ コンポーネント群 (ロジックは変更なし) ▼▼▼
+      AFRAME.registerComponent("click-put", {
+        init: function () {
+          this.isHeld = false;
+          this.camera = document.querySelector("[camera]");
+          this.el.addEventListener("mousedown", () => {
+            if (this.isHeld || !isGameActive) return;
+            this.isHeld = true;
+            this.el.removeAttribute("dynamic-body");
+            this.camera.object3D.add(this.el.object3D);
+            this.el.object3D.position.set(0.4, -0.4, -1.0);
+            this.el.object3D.rotation.set(0, 0, 0);
+          });
+          window.addEventListener("mouseup", () => {
+            if (!this.isHeld) return;
+            // ★音を鳴らす
+            this.el.sceneEl.components["sound-manager"].playSound("put");
+            const worldPos = new THREE.Vector3();
+            this.el.object3D.getWorldPosition(worldPos);
+            this.camera.object3D.remove(this.el.object3D);
+            this.el.sceneEl.object3D.add(this.el.object3D);
+            this.el.object3D.position.copy(worldPos);
+            this.el.setAttribute(
+              "dynamic-body",
+              "shape: sphere; mass: 5; restitution: 0.1; friction: 0.5",
+            );
+            this.isHeld = false;
+            setTimeout(() => {
+              if (!this.el.body) return;
+              const direction = new THREE.Vector3(0, 0, -1);
+              direction.applyQuaternion(this.camera.object3D.quaternion);
+              this.el.body.velocity.set(direction.x * 2, 1, direction.z * 2);
+            }, 10);
+          });
+        },
+      });
+
+      AFRAME.registerComponent("conveyor-belt", {
+        schema: { speed: { type: "vec3", default: { x: 0, y: 0, z: 0 } } },
+        init: function () {
+          this.el.addEventListener("collide", (e) => {
+            if (e.detail.body.el.classList.contains("arare")) {
+              e.detail.body.velocity.set(
+                this.data.speed.x,
+                0,
+                this.data.speed.z,
+              );
+            }
+          });
+        },
+      });
+
+      let score = 0;
+      AFRAME.registerComponent("collector", {
+        init: function () {
+          this.el.addEventListener("collide", (e) => {
+            if (!isGameActive) return;
+            const targetEl = e.detail.body.el;
+            if (targetEl.classList.contains("arare")) {
+              // ★音を鳴らす (チャリン！)
+              this.el.sceneEl.components["sound-manager"].playSound("coin");
+              setTimeout(() => {
+                if (targetEl.parentNode) {
+                  targetEl.removeAttribute("dynamic-body");
+                  targetEl.parentNode.removeChild(targetEl);
+                  score++;
+                  document.getElementById("score-text").innerText = score;
+                  if (score >= 33) finishGame(true);
+                }
+              }, 0);
+            }
+          });
+        },
+      });
+
+      AFRAME.registerComponent("box-barrier", {
+        schema: { size: { type: "vec2", default: { x: 1, y: 1 } } },
+        init: function () {
+          this.player = document.querySelector("#rig");
+          this.playerRadius = 0.5;
+        },
+        tick: function () {
+          if (!this.player) return;
+          const pos = this.el.object3D.position;
+          const playerPos = this.player.object3D.position;
+          const halfW = this.data.size.x / 2 + this.playerRadius;
+          const halfD = this.data.size.y / 2 + this.playerRadius;
+          const dx = playerPos.x - pos.x;
+          const dz = playerPos.z - pos.z;
+          if (Math.abs(dx) < halfW && Math.abs(dz) < halfD) {
+            const pushX = halfW - Math.abs(dx);
+            const pushZ = halfD - Math.abs(dz);
+            if (pushX < pushZ) {
+              if (dx > 0) playerPos.x = pos.x + halfW;
+              else playerPos.x = pos.x - halfW;
+            } else {
+              if (dz > 0) playerPos.z = pos.z + halfD;
+              else playerPos.z = pos.z - halfD;
+            }
+          }
+        },
+      });
+
+      // ▼▼▼ ゲーム進行管理 ▼▼▼
+      window.onload = function () {
+        setTimeout(triggerExplosionAndShowUI, 2000);
+      };
+
+      function triggerExplosionAndShowUI() {
+        console.log("BOOM! ビッグバン発生！");
+        const bag = document.getElementById("arare-bag");
+        if (bag) bag.parentNode.removeChild(bag);
+
+        // ▼▼▼ 変更点: アセットIDのリストを定義 ▼▼▼
+        const assetIds = [
+          "#hinaarare-white",
+          "#hinaarare-pink",
+          "#hinaarare-yellow",
+          "#hinaarare-green",
+        ];
+
+        // ★音を鳴らす (ズガーン！)
+        const scene = document.querySelector("a-scene");
+        if (scene.components["sound-manager"])
+          scene.components["sound-manager"].playSound("explosion");
+
+        for (let i = 0; i < 33; i++) {
+          const ball = document.createElement("a-sphere");
+          const startX = (Math.random() - 0.5) * 2;
+          const startY = 5;
+          const startZ = (Math.random() - 0.5) * 2;
+          ball.setAttribute("position", `${startX} ${startY} ${startZ}`);
+
+          // ▼▼▼ 変更点: ランダムに画像を選んで適用 ▼▼▼
+          const randomAsset =
+            assetIds[Math.floor(Math.random() * assetIds.length)];
+          // colorを#FFFFFFにしないと画像が暗くなるので注意
+          // normal-map もここで適用
+          ball.setAttribute(
+            "material",
+            `src: ${randomAsset}; normal-map: #hinaarare-NRM; color: #FFFFFF; roughness: 0.5`,
+          );
+
+          ball.setAttribute("radius", "0.4");
+          ball.setAttribute("shadow", "cast: false; receive: false");
+          ball.setAttribute("click-put", "");
+          ball.setAttribute(
+            "dynamic-body",
+            "shape: sphere; mass: 0.5; restitution: 0.9; linearDamping: 0.01",
+          );
+          ball.classList.add("arare");
+          scene.appendChild(ball);
+
+          ball.addEventListener("body-loaded", function () {
+            const power = 30 + Math.random() * 20;
+            const vX = (Math.random() - 0.5) * power;
+            const vY = Math.random() * 20;
+            const vZ = (Math.random() - 0.5) * power;
+            this.body.velocity.set(vX, vY, vZ);
+          });
+        }
+        setTimeout(() => {
+          document.getElementById("game-ui").style.display = "flex";
+        }, 2000);
+      }
+
+      function startGame() {
+        document.getElementById("game-ui").style.display = "none";
+        isGameActive = true;
+        score = 0;
+        timeLeft = GAME_TIME;
+        document.getElementById("score-text").innerText = "0";
+
+        // AudioContextの再開(ユーザーアクション時)
+        const scene = document.querySelector("a-scene");
+        if (scene.components["sound-manager"])
+          scene.components["sound-manager"].ctx.resume();
+
+        document.getElementById("time-text").innerText = timeLeft;
+        timerInterval = setInterval(() => {
+          timeLeft--;
+          document.getElementById("time-text").innerText = timeLeft;
+          if (timeLeft <= 10)
+            document.getElementById("time-text").style.color = "red";
+          if (timeLeft <= 0) finishGame(false);
+        }, 1000);
+      }
+
+      function finishGame(isPerfect) {
+        clearInterval(timerInterval);
+        isGameActive = false;
+        // ★音を鳴らす (結果に応じて)
+        const scene = document.querySelector("a-scene");
+        if (isPerfect) {
+          scene.components["sound-manager"].playSound("win");
+        } else {
+          scene.components["sound-manager"].playSound("lose");
+        }
+
+        let msg = isPerfect
+          ? `🎉 パーフェクト達成！ 🎉\n\n記録: ${GAME_TIME - timeLeft}秒`
+          : `⏰ タイムアップ！ ⏰\n\n結果: ${score}個 回収成功`;
+        setTimeout(() => alert(msg), 100);
+      }
+    </script>
+  </head>
+  <body>
+    <div id="hud">
+      <div id="score-board">📦 <span id="score-text">0</span> / 33</div>
+      <div id="time-board">⏰ 残り: <span id="time-text">60</span>秒</div>
+    </div>
+
+    <div id="game-ui">
+      <h1>⚠ 緊急事態発生 ⚠</h1>
+      <p>
+        出荷直前のひなあられ袋が破裂しました！<br />
+        工場内にひなあられが散乱しています。<br />
+        <br />
+        <strong
+          >ベルトコンベアにひなあられを乗せて<br />
+          <span style="color: #ff99cc">33個</span> 集めてください！</strong
+        >
+      </p>
+      <button id="start-btn" onclick="startGame()">業務開始 (START)</button>
+    </div>
+
+    <a-scene physics="debug: false; gravity: -9.8" sound-manager>
+      <!-- asset -->
+      <img id="floor" src="assets/img/floor.webp" />
+      <img id="floor-NRM" src="assets/img/floor-NRM.webp" />
+      <img id="ceiling" src="assets/img/ceiling.webp" />
+      <img id="ceiling-NRM" src="assets/img/ceiling-NRM.webp" />
+      <img id="wall" src="assets/img/wall.webp" />
+      <img id="wall-NRM" src="assets/img/wall-NRM.webp" />
+      <img id="hinaarare-white" src="assets/img/hinaarare-white.png" />
+      <img id="hinaarare-pink" src="assets/img/hinaarare-pink.png" />
+      <img id="hinaarare-yellow" src="assets/img/hinaarare-yellow.png" />
+      <img id="hinaarare-green" src="assets/img/hinaarare-green.png" />
+      <img id="hinaarare-NRM" src="assets/img/hinaarare-NRM.png" />
+      <img id="haccp-certification" src="assets/img/haccp-certification.png" />
+      <img id="haccp-rule" src="assets/img/haccp-rule.png" />
+      <img id="7s" src="assets/img/7s.png" />
+      <img id="valentine" src="assets/img/valentine.webp" />
+      <img id="ehoumaki8" src="assets/img/ehoumaki8.webp" />
+      <img id="ehoumaki3" src="assets/img/ehoumaki3.webp" />
+      <img id="ikanonankou" src="assets/img/ikanonankou.webp" />
+      <img id="kanburi" src="assets/img/kanburi.webp" />
+      <img id="kanburi-description" src="assets/img/kanburi-description.webp" />
+      <img id="allergy" src="assets/img/allergy.webp" />
+
+      <!-- カメラ -->
+      <a-entity
+        id="rig"
+        movement-controls="speed: 1; constrainToNavMesh: true"
+        position="-4 0 4"
+      >
+        <a-entity
+          camera
+          position="0 1.6 0"
+          look-controls="pointerLockEnabled: true"
+        >
+          <a-cursor></a-cursor>
+        </a-entity>
+      </a-entity>
+
+      <!-- 床 -->
+      <a-plane
+        material="src: #floor;
+                  repeat:4 8;
+                  normal-map: #floor-NRM;
+                  normal-texture-repeat:4 8"
+        position="0 0 0"
+        rotation="-90 0 0"
+        width="80"
+        height="80"
+        color="#7BC8A4"
+        static-body
+      ></a-plane>
+
+      <!-- ナビゲーションメッシュ -->
+      <a-plane
+        position="0 -0.1 0"
+        rotation="-90 0 0"
+        width="78"
+        height="78"
+        nav-mesh
+      ></a-plane>
+
+      <!-- 天井 -->
+      <a-plane
+        material="src: #ceiling;
+                  repeat:16 16;
+                  normal-map: #ceiling-NRM;
+                  normal-texture-repeat:8 8"
+        position="0 20 0"
+        rotation="90 0 0"
+        width="80"
+        height="80"
+        static-body
+      ></a-plane>
+
+      <a-sphere
+        radius="4"
+        position="-20 19.95 -20"
+        scale="0.5 0.5 0.5"
+      ></a-sphere>
+      <a-sphere
+        radius="4"
+        position="-20 19.95 0"
+        scale="0.5 0.5 0.5"
+      ></a-sphere>
+      <a-sphere
+        radius="4"
+        position="-20 19.95 20"
+        scale="0.5 0.5 0.5"
+      ></a-sphere>
+
+      <a-sphere
+        radius="4"
+        position="0 19.95 -20"
+        scale="0.5 0.5 0.5"
+      ></a-sphere>
+      <a-sphere radius="4" position="0 19.95 0" scale="0.5 0.5 0.5"></a-sphere>
+      <a-sphere radius="4" position="0 19.95 20" scale="0.5 0.5 0.5"></a-sphere>
+
+      <a-sphere
+        radius="4"
+        position="20 19.95 -20"
+        scale="0.5 0.5 0.5"
+      ></a-sphere>
+      <a-sphere radius="4" position="20 19.95 0" scale="0.5 0.5 0.5"></a-sphere>
+      <a-sphere
+        radius="4"
+        position="20 19.95 20"
+        scale="0.5 0.5 0.5"
+      ></a-sphere>
+
+      <!-- 壁 -->
+      <!-- 正面 -->
+      <a-plane
+        material="src: #wall; repeat:4 4; normal-map: #wall-NRM; normal-texture-repeat:4 4"
+        position="0 10 -40"
+        width="80"
+        height="20"
+        static-body
+      ></a-plane>
+
+      <!-- haccp関係のポスター-->
+      <a-image
+        src="#haccp-certification"
+        position="0 10 -39.9"
+        scale="10 10 1"
+      ></a-image>
+
+      <a-image
+        src="#haccp-rule"
+        position="-20 10 -39.9"
+        scale="20 10 1"
+      ></a-image>
+
+      <a-image src="#7s" position="20 10 -39.9" scale="20 10 1"></a-image>
+
+      <!-- 背面 -->
+      <a-plane
+        material="src: #wall; repeat:4 4; normal-map: #wall-NRM; normal-texture-repeat:4 4"
+        position="0 10 40"
+        width="80"
+        height="20"
+        rotation="180 0 0"
+        static-body
+      ></a-plane>
+
+      <!-- バレンタインデー企画の画像 -->
+      <a-image
+        src="#valentine"
+        position="20 10 39.9"
+        rotation="0 180 0"
+        scale="20 10 1"
+      ></a-image>
+
+      <!-- ポップ画像 -->
+      <a-image
+        src="#ehoumaki8"
+        position="0 10 39.9"
+        rotation="0 180 0"
+        scale="10 14 1"
+      ></a-image>
+
+      <a-image
+        src="#ehoumaki3"
+        position="-12 10 39.9"
+        rotation="0 180 0"
+        scale="10 14 1"
+      ></a-image>
+
+      <a-image
+        src="#ikanonankou"
+        position="-24 10 39.9"
+        rotation="0 180 0"
+        scale="10 14 1"
+      ></a-image>
+
+      <!-- 右面 -->
+      <a-plane
+        material="src: #wall; repeat:4 4; normal-map: #wall-NRM; normal-texture-repeat:4 4"
+        position="40 10 0"
+        width="80"
+        height="20"
+        rotation="180 90 0"
+        static-body
+      ></a-plane>
+
+      <!-- ひなあられの画像 -->
+      <a-image
+        src="#hinaarare-white"
+        position="39.9 10 -22.5"
+        rotation="0 90 0"
+        scale="10 10 1"
+      ></a-image>
+
+      <a-image
+        src="#hinaarare-pink"
+        position="39.9 10 -7.5"
+        rotation="0 90 0"
+        scale="10 10 1"
+      ></a-image>
+
+      <a-image
+        src="#hinaarare-yellow"
+        position="39.9 10 7.5"
+        rotation="0 90 0"
+        scale="10 10 1"
+      ></a-image>
+
+      <a-image
+        src="#hinaarare-green"
+        position="39.9 10 22.5"
+        rotation="0 90 0"
+        scale="10 10 1"
+      ></a-image>
+
+      <!-- 左面 -->
+      <a-plane
+        material="src: #wall; repeat:4 4; normal-map: #wall-NRM; normal-texture-repeat:4 4"
+        position="-40 10 0"
+        width="80"
+        height="20"
+        rotation="0 90 0"
+        static-body
+      ></a-plane>
+
+      <!-- 寒ブリポップ -->
+      <a-image
+        src="#kanburi"
+        position="-39.9 10 25"
+        rotation="0 90 0"
+        scale="14 10 1"
+      ></a-image>
+
+      <a-image
+        src="#kanburi-description"
+        position="-39.9 10 0"
+        rotation="0 90 0"
+        scale="14 10 1"
+      ></a-image>
+
+      <!-- アレルギー表示 -->
+      <a-image
+        src="#allergy"
+        position="-39.9 10 -25"
+        rotation="0 90 0"
+        scale="19.2 13.05 1"
+      ></a-image>
+
+      <!-- ベルトコンベアの中央 -->
+      <a-cylinder
+        material="color: #6c757d"
+        scale="2 1 2"
+        position="0 -0.4 0"
+        static-body
+        collector
+      ></a-cylinder>
+
+      <!-- ひなあられの袋 / 破裂用-->
+      <a-cylinder
+        material="src: #hinaarare-white; normal-map: #hinaarare-NRM"
+        id="arare-bag"
+        position="0 1 0"
+        radius="1"
+        height="2"
+        color="#FFFFFF"
+        material="opacity: 0.9; transparent: true"
+        shadow
+      >
+        <a-sphere position="0 1.2 0" radius="0.8" color="#FFC0CB"></a-sphere>
+      </a-cylinder>
+
+      <!-- ベルトコンベア -->
+      <a-box
+        position="0 0.4 -9.5"
+        scale="4 0.8 15"
+        color="#BDC3C9"
+        static-body
+        box-barrier="size: 4.1 15.1"
+        conveyor-belt="speed: 0 0 8"
+      ></a-box>
+      <a-cylinder
+        material="color: #6d777e"
+        position="0 0 -3"
+        rotation="0 0 90"
+        scale="1 3 1"
+      ></a-cylinder>
+      <a-cylinder
+        material="color: #6d777e"
+        position="0 0 -5"
+        rotation="0 0 90"
+        scale="1 3 1"
+      ></a-cylinder>
+      <a-cylinder
+        material="color: #6d777e"
+        position="0 0 -7"
+        rotation="0 0 90"
+        scale="1 3 1"
+      ></a-cylinder>
+      <a-cylinder
+        material="color: #6d777e"
+        position="0 0 -9"
+        rotation="0 0 90"
+        scale="1 3 1"
+      ></a-cylinder>
+      <a-cylinder
+        material="color: #6d777e"
+        position="0 0 -11"
+        rotation="0 0 90"
+        scale="1 3 1"
+      ></a-cylinder>
+      <a-cylinder
+        material="color: #6d777e"
+        position="0 0 -13"
+        rotation="0 0 90"
+        scale="1 3 1"
+      ></a-cylinder>
+      <a-cylinder
+        material="color: #6d777e"
+        position="0 0 -15"
+        rotation="0 0 90"
+        scale="1 3 1"
+      ></a-cylinder>
+
+      <a-box
+        position="0 0.4 9.5"
+        scale="4 0.8 15"
+        color="#BDC3C9"
+        static-body
+        box-barrier="size: 4.1 15.1"
+        conveyor-belt="speed: 0 0 -8"
+      ></a-box>
+      <a-cylinder
+        material="color: #6d777e"
+        position="0 0 3"
+        rotation="0 0 90"
+        scale="1 3 1"
+      ></a-cylinder>
+      <a-cylinder
+        material="color: #6d777e"
+        position="0 0 5"
+        rotation="0 0 90"
+        scale="1 3 1"
+      ></a-cylinder>
+      <a-cylinder
+        material="color: #6d777e"
+        position="0 0 7"
+        rotation="0 0 90"
+        scale="1 3 1"
+      ></a-cylinder>
+      <a-cylinder
+        material="color: #6d777e"
+        position="0 0 9"
+        rotation="0 0 90"
+        scale="1 3 1"
+      ></a-cylinder>
+      <a-cylinder
+        material="color: #6d777e"
+        position="0 0 11"
+        rotation="0 0 90"
+        scale="1 3 1"
+      ></a-cylinder>
+      <a-cylinder
+        material="color: #6d777e"
+        position="0 0 13"
+        rotation="0 0 90"
+        scale="1 3 1"
+      ></a-cylinder>
+      <a-cylinder
+        material="color: #6d777e"
+        position="0 0 15"
+        rotation="0 0 90"
+        scale="1 3 1"
+      ></a-cylinder>
+
+      <a-box
+        position="9.5 0.4 0"
+        scale="4 0.8 15"
+        rotation="0 90 0"
+        color="#BDC3C9"
+        static-body
+        box-barrier="size: 15.1 4.1"
+        conveyor-belt="speed: -8 0 0"
+      ></a-box>
+      <a-cylinder
+        material="color: #6d777e"
+        position="3 0 0"
+        rotation="0 90 90"
+        scale="1 3 1"
+      ></a-cylinder>
+      <a-cylinder
+        material="color: #6d777e"
+        position="5 0 0"
+        rotation="0 90 90"
+        scale="1 3 1"
+      ></a-cylinder>
+      <a-cylinder
+        material="color: #6d777e"
+        position="7 0 0"
+        rotation="0 90 90"
+        scale="1 3 1"
+      ></a-cylinder>
+      <a-cylinder
+        material="color: #6d777e"
+        position="9 0 0"
+        rotation="0 90 90"
+        scale="1 3 1"
+      ></a-cylinder>
+      <a-cylinder
+        material="color: #6d777e"
+        position="11 0 0"
+        rotation="0 90 90"
+        scale="1 3 1"
+      ></a-cylinder>
+      <a-cylinder
+        material="color: #6d777e"
+        position="13 0 0"
+        rotation="0 90 90"
+        scale="1 3 1"
+      ></a-cylinder>
+      <a-cylinder
+        material="color: #6d777e"
+        position="15 0 0"
+        rotation="0 90 90"
+        scale="1 3 1"
+      ></a-cylinder>
+
+      <a-box
+        position="-9.5 0.4 0"
+        scale="4 0.8 15"
+        rotation="0 90 0"
+        color="#BDC3C9"
+        static-body
+        box-barrier="size: 15.1 4.1"
+        conveyor-belt="speed: 8 0 0"
+      ></a-box>
+      <a-cylinder
+        material="color: #6d777e"
+        position="-3 0 0"
+        rotation="0 90 90"
+        scale="1 3 1"
+      ></a-cylinder>
+      <a-cylinder
+        material="color: #6d777e"
+        position="-5 0 0"
+        rotation="0 90 90"
+        scale="1 3 1"
+      ></a-cylinder>
+      <a-cylinder
+        material="color: #6d777e"
+        position="-7 0 0"
+        rotation="0 90 90"
+        scale="1 3 1"
+      ></a-cylinder>
+      <a-cylinder
+        material="color: #6d777e"
+        position="-9 0 0"
+        rotation="0 90 90"
+        scale="1 3 1"
+      ></a-cylinder>
+      <a-cylinder
+        material="color: #6d777e"
+        position="-11 0 0"
+        rotation="0 90 90"
+        scale="1 3 1"
+      ></a-cylinder>
+      <a-cylinder
+        material="color: #6d777e"
+        position="-13 0 0"
+        rotation="0 90 90"
+        scale="1 3 1"
+      ></a-cylinder>
+      <a-cylinder
+        material="color: #6d777e"
+        position="-15 0 0"
+        rotation="0 90 90"
+        scale="1 3 1"
+      ></a-cylinder>
+
+      <!-- お雛様 -->
+      <a-entity
+        position="35 0 -35"
+        rotation="0 -45 0"
+        static-body
+        box-barrier="size: 5.1 5.1"
+      >
+        <a-cone
+          position="0 2.5 0"
+          radius-bottom="3"
+          radius-top="1"
+          height="5"
+          color="#4169e1"
+        ></a-cone>
+        <a-sphere position="0 5.5 0" radius="1.2" color="#f0e68c"></a-sphere>
+        <a-cone
+          position="0 7 0"
+          radius-bottom="0.8"
+          radius-top="0"
+          height="1.5"
+          color="#222"
+        ></a-cone>
+        <a-box
+          position="0 3 1.5"
+          width="2"
+          height="0.2"
+          depth="0.5"
+          color="#8b4513"
+          rotation="30 0 0"
+        ></a-box>
+      </a-entity>
+      <a-entity
+        position="-35 0 -35"
+        rotation="0 45 0"
+        static-body
+        box-barrier="size: 5.1 5.1"
+      >
+        <a-cone
+          position="0 2.5 0"
+          radius-bottom="3.5"
+          radius-top="1"
+          height="5"
+          color="#db7093"
+        ></a-cone>
+        <a-sphere position="0 5.5 0" radius="1.2" color="#f0e68c"></a-sphere>
+        <a-sphere position="0 6.8 0" radius="0.6" color="#ffd700"></a-sphere>
+        <a-box
+          position="0 3 1.8"
+          width="2.5"
+          height="1.5"
+          depth="0.1"
+          color="#ffd700"
+          rotation="-30 0 0"
+        ></a-box>
+      </a-entity>
+      <a-entity
+        position="35 0 35"
+        rotation="0 -135 0"
+        static-body
+        box-barrier="size: 5.1 5.1"
+      >
+        <a-cone
+          position="0 2.5 0"
+          radius-bottom="3.5"
+          radius-top="1"
+          height="5"
+          color="#db7093"
+        ></a-cone>
+        <a-sphere position="0 5.5 0" radius="1.2" color="#f0e68c"></a-sphere>
+        <a-sphere position="0 6.8 0" radius="0.6" color="#ffd700"></a-sphere>
+        <a-box
+          position="0 3 1.8"
+          width="2.5"
+          height="1.5"
+          depth="0.1"
+          color="#ffd700"
+          rotation="-30 0 0"
+        ></a-box>
+      </a-entity>
+      <a-entity
+        position="-35 0 35"
+        rotation="0 135 0"
+        static-body
+        box-barrier="size: 5.1 5.1"
+      >
+        <a-cone
+          position="0 2.5 0"
+          radius-bottom="3"
+          radius-top="1"
+          height="5"
+          color="#4169e1"
+        ></a-cone>
+        <a-sphere position="0 5.5 0" radius="1.2" color="#f0e68c"></a-sphere>
+        <a-cone
+          position="0 7 0"
+          radius-bottom="0.8"
+          radius-top="0"
+          height="1.5"
+          color="#222"
+        ></a-cone>
+        <a-box
+          position="0 3 1.5"
+          width="2"
+          height="0.2"
+          depth="0.5"
+          color="#8b4513"
+          rotation="30 0 0"
+        ></a-box>
+      </a-entity>
+    </a-scene>
+  </body>
+</html>
