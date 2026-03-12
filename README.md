@@ -1,5 +1,9 @@
 # vr-hinamatsuri-2026
-ひなあられ工場パニック（A-Frameで作成）
+【緊急事態⚠】ひなあられ工場パニック💦33個回収せよ📣
+
+（A-Frameで作成）
+
+![ひなあられ工場パニックサムネイル](./docs/thumbnail.png)
 
 # 🎎 ストーリー (Story)
 * ひなまつり直前
@@ -9,16 +13,18 @@
 * 工場内に33個飛び散ってしまった。
 * 出荷に間に合うか？急いで回収せよ！
 
-## 🎮 今すぐ遊ぶ (Play Demo)
-👉 **https://gyosei-yuki.github.io/vr-hinamatsuri-2026/**
+## 🎮 遊んでみる・見てみる (Play & Watch)
+👉 **[🎮 今すぐブラウザで遊ぶ (Play Demo)](https://gyosei-yuki.github.io/vr-hinamatsuri-2026/)**
 
 ※ スマホでもPCでも遊べます！
 
+👉 **[🎥 デモプレイ動画を見る (ニコニコ動画)](https://www.nicovideo.jp/watch/sm45953806)**
+
 ## 概要 (Overview)
-* 制限時間は60秒
-* 工場内に飛び散ったひなあられをクリック
-* ベルトコンベアに載せて中央へ集荷
-* オーソドックスなWASDコントローラー
+* 制限時間は60秒🕐
+* 工場内に飛び散ったひなあられをクリック🥎
+* ベルトコンベアに載せて中央へ集荷🧳
+* オーソドックスなWASDコントローラー🎮
 
 ## 使用技術 (Tech Stack)
 * HTML / JavaScript
